@@ -1,4 +1,7 @@
-﻿$CAName = "CN=COMODO SHA-256 Client Authentication and Secure Email CA, O=COMODO CA Limited, L=Salford, S=Greater Manchester, C=GB"
+﻿# Name of the Issuing CA of the certificate to be used for signing (and encrypting). You must use this exact spacing scheme:
+#   - No spaces before and after the "=" (except if the actual value contains spaces, naturally)
+#	- A single space after each comma separating Subject DN components
+$CAName = "CN=COMODO SHA-256 Client Authentication and Secure Email CA, O=COMODO CA Limited, L=Salford, S=Greater Manchester, C=GB"
 
 function CreateOutlookSignatureSettings($OfficeBitness, $SigningCertificate, $EncryptionCertificate, $SettingsName = "Outlook Signature Settings") {
 
