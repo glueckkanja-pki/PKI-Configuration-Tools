@@ -58,6 +58,17 @@ function ConfigureOutlookSignatures($OutlookSettingsPath, $OutlookHKLMPath, $Sig
         Return 50
     }
 
+    if (Test-Path $OutlookSettingsPath) {
+        $key = (Get-ItemProperty $OutlookSettingsPath).{11020355}
+        if ($null -ne $key) {
+            Write-Host "Security Settings already exist." 
+            Return 20
+        }
+    }
+    else { # The whole registry key might not exist if Outlook has never touched security settings
+        $dummy = New-Item -Path $OutlookSettingsPath -ItemType RegistryKey -Force
+    }
+
     $key = (Get-ItemProperty $OutlookSettingsPath).{11020355}
     if ($null -ne $key) {
         Write-Host "Security Settings already exist." 
