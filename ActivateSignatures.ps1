@@ -129,7 +129,7 @@ function ConfigureOutlookSignatures($OutlookSettingsPath, $OutlookHKLMPath, $Sig
 ## Search for an appropriate certificate
 cd cert:\CurrentUser\My
 $sOidSecureEmail = "1.3.6.1.5.5.7.3.4"
-$cert = (dir | ? { $_.Issuer -eq $CAName -and $_.HasPrivateKey -and $_.Verify() -and ( ( ($_.EnhancedKeyUsageList | ? { $_.ObjectId -eq $sOidSecureEmail }) -ne $null) -OR ($_.Extensions| where {$_.EnhancedKeyUsages.Value -eq $sOidSecureEmail}) ) }) | Sort NotAfter -Descending| Select -First 1
+$cert = (dir | ? { $_.Issuer -eq $CAName -and $_.HasPrivateKey -and $_.Verify() -and ( ( ($_.EnhancedKeyUsageList | ? { $_.ObjectId -eq $sOidSecureEmail }) -ne $null) -OR ($_.Extensions| ? {$_.EnhancedKeyUsages | ? {$_.Value -eq $sOidSecureEmail} } ) ) }) | Sort NotAfter -Descending| Select -First 1
 # If multiple suitable certificates are found, use the one that expires last
 
 if ($null -eq $cert) {
