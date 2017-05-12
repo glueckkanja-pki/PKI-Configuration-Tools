@@ -1,5 +1,5 @@
 <# 
-ActivateSignatures.ps1 Version: 20170512
+ActivateSignatures.ps1 Version: 20170512b
 C. Hannebauer - Glück & Kanja Consulting AG
 T. Kunzi - Glück & Kanja Consulting AG
 
@@ -23,6 +23,7 @@ Limitations:
 Changelog:
 20170313: Outlook2010, Win2008 EnhancedKeyUsage detection, $AlwaysSignMails, Parameters - T. Kunzi
 20170512: Fixed Problems with older Powershell/.NET versions - C. Hannebauer
+20170512b: More output (for debugging) - C. Hannebauer
 
 #>
 param
@@ -126,12 +127,18 @@ function ConfigureOutlookSignatures($OutlookSettingsPath, $OutlookHKLMPath, $Sig
 }
 
 # Main
+Write-Host "ActivateSignatures Version 20170512b"
 
 ## Search for an appropriate certificate
 cd cert:\CurrentUser\My
 $sOidSecureEmail = "1.3.6.1.5.5.7.3.4"
-$cert = (dir | ? { $_.Issuer -eq $CAName -and $_.HasPrivateKey -and $_.Verify() -and ( ( ($_.EnhancedKeyUsageList | ? { $_.ObjectId -eq $sOidSecureEmail }) -ne $null) -OR ($_.Extensions| ? {$_.EnhancedKeyUsages | ? {$_.Value -eq $sOidSecureEmail} } ) ) }) | Sort NotAfter -Descending| Select -First 1
+$CandidateCerts = @(dir | ? { $_.Issuer -eq $CAName -and $_.HasPrivateKey -and ( ( ($_.EnhancedKeyUsageList | ? { $_.ObjectId -eq $sOidSecureEmail }) -ne $null) -OR ($_.Extensions| ? {$_.EnhancedKeyUsages | ? {$_.Value -eq $sOidSecureEmail} } ) ) })
+Write-Host "There are $($CandidateCerts.Length) certificates for S/MIME"
+$ValidCandidateCerts = @($CandidateCerts | ? { $_.Verify() })
+Write-Host "Of these S/MIME certificates, $($ValidCandidateCerts.Length) are valid"
+
 # If multiple suitable certificates are found, use the one that expires last
+$cert = $ValidCandidateCerts | Sort NotAfter -Descending | Select -First 1
 
 if ($null -eq $cert) {
     Write-Host "No certificate found to be used as signature certificate." 
