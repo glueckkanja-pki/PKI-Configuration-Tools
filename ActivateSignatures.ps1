@@ -1,5 +1,5 @@
 <# 
-ActivateSignatures.ps1 Version: 20170313
+ActivateSignatures.ps1 Version: 20170512
 C. Hannebauer - Glück & Kanja Consulting AG
 T. Kunzi - Glück & Kanja Consulting AG
 
@@ -22,6 +22,7 @@ Limitations:
 	
 Changelog:
 20170313: Outlook2010, Win2008 EnhancedKeyUsage detection, $AlwaysSignMails, Parameters - T. Kunzi
+20170512: Fixed Problems with older Powershell/.NET versions - C. Hannebauer
 
 #>
 param
