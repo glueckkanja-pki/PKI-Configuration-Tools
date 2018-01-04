@@ -1,7 +1,7 @@
 <# 
-ActivateSignatures.ps1 Version: 20170512b
-C. Hannebauer - Glück & Kanja Consulting AG
-T. Kunzi - Glück & Kanja Consulting AG
+ActivateSignatures.ps1 Version: 20180104b
+C. Hannebauer - Glueck & Kanja Consulting AG
+T. Kunzi - Glueck & Kanja Consulting AG
 
 If found, an email encryption certificate will be configured in Outlook.
 This enables the Sign and encrypt buttons of the Options dialogue when composing a message.
@@ -13,23 +13,28 @@ This enables the Sign and encrypt buttons of the Options dialogue when composing
 	
 	.SWITCH AlwaysSignMails
     When specified script will set to always sign the emails as Default
+
+	.SWITCH Force
+    When specified script always writes new configuration data, even if some configuration data exist already (for example using an expired certificate or from a previous run of the script)
 	
 	.EXAMPLE
-    .\ActivateSignatures.ps1 -HTMLReport -CAName "CN=COMODO SHA-256 Client Authentication and Secure Email CA, O=COMODO CA Limited, L=Salford, S=Greater Manchester, C=GB" -AlwaysSignMails
+    .\ActivateSignatures.ps1 -CAName "CN=COMODO RSA Client Authentication and Secure Email CA, O=COMODO CA Limited, L=Salford, S=Greater Manchester, C=GB" -AlwaysSignMails
 
 Limitations:
-	- Script only configures the certificate used once and will not select a renewed certificate.
+	- Script only configures the certificate used once and will not select a renewed certificate, except if using the Force parameter
 	
 Changelog:
 20170313: Outlook2010, Win2008 EnhancedKeyUsage detection, $AlwaysSignMails, Parameters - T. Kunzi
 20170512: Fixed Problems with older Powershell/.NET versions - C. Hannebauer
 20170512b: More output (for debugging) - C. Hannebauer
+20180104: Force switch and backups - C. Hannebauer
 
 #>
 param
 ( 
 [Parameter(Position=0,Mandatory=$true,ValueFromPipeline=$false,HelpMessage='exact name of Issuing CA')][string]$CAName,
-[Parameter(Position=1,Mandatory=$false,ValueFromPipeline=$false,HelpMessage='instruct Outlook to sign emails as default setting')][switch]$AlwaysSignMails
+[Parameter(Position=1,Mandatory=$false,ValueFromPipeline=$false,HelpMessage='instruct Outlook to sign emails as default setting')][switch]$AlwaysSignMails,
+[Parameter(Position=2,Mandatory=$false,ValueFromPipeline=$false,HelpMessage='always write new configuration data, even if some configuration data exists already (for example using an expired certificate)')][switch]$Force
 )
 
 function CreateOutlookSignatureSettings($OfficeBitness, $SigningCertificate, $EncryptionCertificate, $SettingsName = "Outlook Signature Settings") {
@@ -86,62 +91,85 @@ function CreateOutlookSignatureSettings($OfficeBitness, $SigningCertificate, $En
 function ConfigureOutlookSignatures($OutlookSettingsPath, $OutlookHKLMPath, $SigningCertificate, $EncryptionCertificate) {
     $OfficeBitness = (Get-ItemProperty $OutlookHKLMPath).BitNess
     if ($null -eq $OfficeBitness) {
-        Write-Host "Old version of Outlook detected, but it was deinstalled already. This is usually okay." 
+        Write-Error "Old version of Outlook detected, but it was deinstalled already. This is usually okay." 
         Return 50
     }
+
+    $backupPath = [String]::Empty
 
     if (Test-Path $OutlookSettingsPath) {
         $key = (Get-ItemProperty $OutlookSettingsPath).{11020355}
         if ($null -ne $key) {
-            Write-Host "Security Settings already exist." 
-            Return 20
+            if ($Force) {
+                $CurrentDate = Get-Date -Format "s"
+                $backupPath = "$OutlookSettingsPath-backups\scriptbackup-$CurrentDate"
+                Write-Information "Security Settings already exist, but continuing due to Force parameter. Creating a backup of the registry key now."
+                if (-not (Test-Path "$OutlookSettingsPath-backups")) {
+                    New-Item -Path "$OutlookSettingsPath-backups" -ItemType RegistryKey -Force
+                }
+                copy $OutlookSettingsPath $backupPath -Force -ErrorAction Stop
+            }
+            else {
+                Write-Error "Security Settings already exist. Use Force parameter if you still want to write new settings." 
+                Return 20
+            }
         }
     }
     else { # The whole registry key might not exist if Outlook has never touched security settings
         $dummy = New-Item -Path $OutlookSettingsPath -ItemType RegistryKey -Force
     }
 
-    Write-Host "Configuring Outlook in Path $OutlookSettingsPath" 
+    Write-Information "Configuring Outlook in Path $OutlookSettingsPath" 
 
-    [byte[]] $binSettings = CreateOutlookSignatureSettings $OfficeBitness $SigningCertificate $EncryptionCertificate
-    $dummy = New-ItemProperty $OutlookSettingsPath -Name 11020355 -PropertyType Binary -Value $binSettings
+    try {
+        [byte[]] $binSettings = CreateOutlookSignatureSettings $OfficeBitness $SigningCertificate $EncryptionCertificate
+        $dummy = New-ItemProperty $OutlookSettingsPath -Name 11020355 -PropertyType Binary -Value $binSettings -Force:$Force.IsPresent
 
-    [byte]$CryptoEnablerBits = 0
-    if ($null -ne $EncryptionCertificate) {
-        [byte]$CryptoEnablerBits = $CryptoEnablerBits -bor 0x01 # Bit 0 (LSB) indicates whether encryption is enabled
+        [byte]$CryptoEnablerBits = 0
+        if ($null -ne $EncryptionCertificate) {
+            [byte]$CryptoEnablerBits = $CryptoEnablerBits -bor 0x01 # Bit 0 (LSB) indicates whether encryption is enabled
+        }
+        if ($null -ne $SigningCertificate) {
+		    if ($AlwaysSignMails) {
+		        Write-Debug "AlwaysSignMails = true"
+			    [byte]$CryptoEnablerBits = $CryptoEnablerBits -bor 0x02 # Bit 1 indicates whether signing is enabled
+		    }
+		    else
+		    {
+			    Write-Debug "AlwaysSignMails = false"
+		    }
+        }
+
+        ## Enable Signatures and/or Encryption as default
+        [byte[]]$binCryptoActivation = $CryptoEnablerBits,0,0,0
+        $dummy = New-ItemProperty $OutlookSettingsPath -Name 00030354 -PropertyType Binary -Value $binCryptoActivation -Force
     }
-    if ($null -ne $SigningCertificate) {
-		if ($AlwaysSignMails) {
-		    "AlwaysSignMails = true"
-			[byte]$CryptoEnablerBits = $CryptoEnablerBits -bor 0x02 # Bit 1 indicates whether signing is enabled
-		}
-		else
-		{
-			"AlwaysSignMails = false"
-		}
+    catch {
+        if ($backupPath -ne [String]::Empty -and (Test-Path $backupPath)) {
+            Write-Warning "An error occurred, restoring backup"
+            Write-Information "deleting potentially misconfigured registry value"
+            del $OutlookSettingsPath
+            Write-Information "copying backuped value to the original registry location"
+            copy $backupPath $OutlookSettingsPath
+        }
     }
-
-    ## Enable Signatures and/or Encryption as default
-    [byte[]]$binCryptoActivation = $CryptoEnablerBits,0,0,0
-    $dummy = New-ItemProperty $OutlookSettingsPath -Name 00030354 -PropertyType Binary -Value $binCryptoActivation -Force
 }
 
 # Main
-Write-Host "ActivateSignatures Version 20170512b"
+Write-Information "ActivateSignatures Version 20180104"
 
 ## Search for an appropriate certificate
-cd cert:\CurrentUser\My
 $sOidSecureEmail = "1.3.6.1.5.5.7.3.4"
-$CandidateCerts = @(dir | ? { $_.Issuer -eq $CAName -and $_.HasPrivateKey -and ( ( ($_.EnhancedKeyUsageList | ? { $_.ObjectId -eq $sOidSecureEmail }) -ne $null) -OR ($_.Extensions| ? {$_.EnhancedKeyUsages | ? {$_.Value -eq $sOidSecureEmail} } ) ) })
-Write-Host "There are $($CandidateCerts.Length) certificates for S/MIME"
+$CandidateCerts = @(dir cert:\CurrentUser\My | ? { $_.Issuer -eq $CAName -and $_.HasPrivateKey -and ( ( ($_.EnhancedKeyUsageList | ? { $_.ObjectId -eq $sOidSecureEmail }) -ne $null) -OR ($_.Extensions| ? {$_.EnhancedKeyUsages | ? {$_.Value -eq $sOidSecureEmail} } ) ) })
+Write-Information "There are $($CandidateCerts.Length) certificates for S/MIME"
 $ValidCandidateCerts = @($CandidateCerts | ? { $_.Verify() })
-Write-Host "Of these S/MIME certificates, $($ValidCandidateCerts.Length) are valid"
+Write-Information "Of these S/MIME certificates, $($ValidCandidateCerts.Length) are valid"
 
 # If multiple suitable certificates are found, use the one that expires last
 $cert = $ValidCandidateCerts | Sort NotAfter -Descending | Select -First 1
 
 if ($null -eq $cert) {
-    Write-Host "No certificate found to be used as signature certificate." 
+    Write-Error "No certificate found to be used as signature certificate." 
     Return 30
 }
 
