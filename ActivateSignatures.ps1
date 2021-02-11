@@ -12,13 +12,16 @@ This enables the Sign and encrypt buttons of the Options dialogue when composing
 	- A single space after each comma separating Subject DN components
 	
 	.SWITCH AlwaysSignMails
-    When specified script will set to always sign the emails as Default
+    When specified, script will set to always sign the emails as Default
 
 	.SWITCH Force
     When specified script always writes new configuration data, even if some configuration data exist already (for example using an expired certificate or from a previous run of the script)
 
     .SWITCH EnableEncryption
     When specified, adds the certificate as encryption certificate, too, instead of only signatures.
+
+    .SWITCH AlwaysEncryptMails
+    When specified, script will configure that all emails will be encrypted by default 
 	
 	.EXAMPLE
     .\ActivateSignatures.ps1 -CAName "CN=COMODO RSA Client Authentication and Secure Email CA, O=COMODO CA Limited, L=Salford, S=Greater Manchester, C=GB" -AlwaysSignMails
@@ -37,7 +40,8 @@ param
 [Parameter(Position=0,Mandatory=$true,ValueFromPipeline=$false,HelpMessage='exact name of Issuing CA')][string]$CAName,
 [Parameter(Position=1,Mandatory=$false,ValueFromPipeline=$false,HelpMessage='instruct Outlook to sign emails as default setting')][switch]$AlwaysSignMails,
 [Parameter(Position=2,Mandatory=$false,ValueFromPipeline=$false,HelpMessage='always write new configuration data, even if some configuration data exists already (for example using an expired certificate)')][switch]$Force,
-[Parameter(Position=3,Mandatory=$false,ValueFromPipeline=$false,HelpMessage='adds the certificate as encryption certificate, too, instead of only signatures')][switch]$EnableEncryption
+[Parameter(Position=3,Mandatory=$false,ValueFromPipeline=$false,HelpMessage='adds the certificate as encryption certificate, too, instead of only signatures')][switch]$EnableEncryption,
+[Parameter(Position=4,Mandatory=$false,ValueFromPipeline=$false,HelpMessage='instruct Outlook to encrypt emails as default setting')][switch]$AlwaysEncryptMails
 )
 
 Class OutlookSignatureSettings {
@@ -280,7 +284,14 @@ function ConfigureOutlookSignatures($OutlookSettingsPath, $OutlookHKLMPath, $Sig
 
         [byte]$CryptoEnablerBits = 0
         if ($null -ne $EncryptionCertificate) {
-            [byte]$CryptoEnablerBits = $CryptoEnablerBits -bor 0x01 # Bit 0 (LSB) indicates whether encryption is enabled
+            if ($AlwaysEncryptMails) {
+		        Write-Debug "AlwaysEncryptMails = true"
+                [byte]$CryptoEnablerBits = $CryptoEnablerBits -bor 0x01 # Bit 0 (LSB) indicates whether encryption is enabled
+            }
+            else
+            {
+			    Write-Debug "AlwaysEncryptMails = false"
+            }
         }
         if ($null -ne $SigningCertificate) {
 		    if ($AlwaysSignMails) {
