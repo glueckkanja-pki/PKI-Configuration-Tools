@@ -16,6 +16,9 @@ This enables the Sign and encrypt buttons of the Options dialogue when composing
 
 	.SWITCH Force
     When specified script always writes new configuration data, even if some configuration data exist already (for example using an expired certificate or from a previous run of the script)
+
+    .SWITCH EnableEncryption
+    When specified, adds the certificate as encryption certificate, too, instead of only signatures.
 	
 	.EXAMPLE
     .\ActivateSignatures.ps1 -CAName "CN=COMODO RSA Client Authentication and Secure Email CA, O=COMODO CA Limited, L=Salford, S=Greater Manchester, C=GB" -AlwaysSignMails
@@ -26,13 +29,15 @@ Changelog:
 20170512b: More output (for debugging) - C. Hannebauer
 20180104: Force switch and backups - C. Hannebauer
 20180104b: Parses existing configuration and overwrites settings if the configured certificate is not valid anymore - C. Hannebauer
+20210211: Switch for Encryption Certificate
 
 #>
 param
 ( 
 [Parameter(Position=0,Mandatory=$true,ValueFromPipeline=$false,HelpMessage='exact name of Issuing CA')][string]$CAName,
 [Parameter(Position=1,Mandatory=$false,ValueFromPipeline=$false,HelpMessage='instruct Outlook to sign emails as default setting')][switch]$AlwaysSignMails,
-[Parameter(Position=2,Mandatory=$false,ValueFromPipeline=$false,HelpMessage='always write new configuration data, even if some configuration data exists already (for example using an expired certificate)')][switch]$Force
+[Parameter(Position=2,Mandatory=$false,ValueFromPipeline=$false,HelpMessage='always write new configuration data, even if some configuration data exists already (for example using an expired certificate)')][switch]$Force,
+[Parameter(Position=3,Mandatory=$false,ValueFromPipeline=$false,HelpMessage='adds the certificate as encryption certificate, too, instead of only signatures')][switch]$EnableEncryption
 )
 
 Class OutlookSignatureSettings {
@@ -322,18 +327,23 @@ if ($null -eq $cert) {
     Return 30
 }
 
+$encryptionCert = $null
+if ($EnableEncryption) {
+    $encryptionCert = $cert
+}
+
 ## Configure Outlook 2016 (32 Bit and 64 Bit)
 ### Either 64 Bit on 64 Bit machine or 32 Bit on 32 Bit machine
 if (Test-Path HKLM:\SOFTWARE\Microsoft\Office\16.0\Outlook) {
     $DefaultProfile = (Get-ItemProperty HKCU:\SOFTWARE\Microsoft\Office\16.0\Outlook).DefaultProfile
 
-    ConfigureOutlookSignatures "HKCU:\SOFTWARE\Microsoft\Office\16.0\Outlook\Profiles\$DefaultProfile\c02ebc5353d9cd11975200aa004ae40e" HKLM:\SOFTWARE\Microsoft\Office\16.0\Outlook $cert $null
+    ConfigureOutlookSignatures "HKCU:\SOFTWARE\Microsoft\Office\16.0\Outlook\Profiles\$DefaultProfile\c02ebc5353d9cd11975200aa004ae40e" HKLM:\SOFTWARE\Microsoft\Office\16.0\Outlook $cert $encryptionCert
 }
 ### 32 Bit Outlook on 64 Bit Windows
 if (Test-Path HKLM:\SOFTWARE\WOW6432Node\Microsoft\Office\16.0\Outlook) {
     $DefaultProfile = (Get-ItemProperty HKCU:\SOFTWARE\Microsoft\Office\16.0\Outlook).DefaultProfile
 
-    ConfigureOutlookSignatures "HKCU:\SOFTWARE\Microsoft\Office\16.0\Outlook\Profiles\$DefaultProfile\c02ebc5353d9cd11975200aa004ae40e" HKLM:\SOFTWARE\WOW6432Node\Microsoft\Office\16.0\Outlook $cert $null
+    ConfigureOutlookSignatures "HKCU:\SOFTWARE\Microsoft\Office\16.0\Outlook\Profiles\$DefaultProfile\c02ebc5353d9cd11975200aa004ae40e" HKLM:\SOFTWARE\WOW6432Node\Microsoft\Office\16.0\Outlook $cert $encryptionCert
 }
 
 ## Configure Outlook 2013 (32 Bit and 64 Bit)
@@ -341,13 +351,13 @@ if (Test-Path HKLM:\SOFTWARE\WOW6432Node\Microsoft\Office\16.0\Outlook) {
 if (Test-Path HKLM:\SOFTWARE\Microsoft\Office\15.0\Outlook) {
     $DefaultProfile = (Get-ItemProperty HKCU:\SOFTWARE\Microsoft\Office\15.0\Outlook).DefaultProfile
 
-    ConfigureOutlookSignatures "HKCU:\SOFTWARE\Microsoft\Office\15.0\Outlook\Profiles\$DefaultProfile\c02ebc5353d9cd11975200aa004ae40e" HKLM:\SOFTWARE\Microsoft\Office\15.0\Outlook $cert $null
+    ConfigureOutlookSignatures "HKCU:\SOFTWARE\Microsoft\Office\15.0\Outlook\Profiles\$DefaultProfile\c02ebc5353d9cd11975200aa004ae40e" HKLM:\SOFTWARE\Microsoft\Office\15.0\Outlook $cert $encryptionCert
 }
 ### 32 Bit Outlook on 64 Bit Windows
 if (Test-Path HKLM:\SOFTWARE\WOW6432Node\Microsoft\Office\15.0\Outlook) {
     $DefaultProfile = (Get-ItemProperty HKCU:\SOFTWARE\Microsoft\Office\15.0\Outlook).DefaultProfile
 
-    ConfigureOutlookSignatures "HKCU:\SOFTWARE\Microsoft\Office\15.0\Outlook\Profiles\$DefaultProfile\c02ebc5353d9cd11975200aa004ae40e" HKLM:\SOFTWARE\WOW6432Node\Microsoft\Office\15.0\Outlook $cert $null
+    ConfigureOutlookSignatures "HKCU:\SOFTWARE\Microsoft\Office\15.0\Outlook\Profiles\$DefaultProfile\c02ebc5353d9cd11975200aa004ae40e" HKLM:\SOFTWARE\WOW6432Node\Microsoft\Office\15.0\Outlook $cert $encryptionCert
 }
 
 ## Configure Outlook 2010 (32 Bit and 64 Bit)
@@ -355,11 +365,11 @@ if (Test-Path HKLM:\SOFTWARE\WOW6432Node\Microsoft\Office\15.0\Outlook) {
 if (Test-Path HKLM:\SOFTWARE\Microsoft\Office\14.0\Outlook) {
     $DefaultProfile = (Get-ItemProperty "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Windows Messaging Subsystem\Profiles").DefaultProfile
 
-    ConfigureOutlookSignatures "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Windows Messaging Subsystem\Profiles\$DefaultProfile\c02ebc5353d9cd11975200aa004ae40e" HKLM:\SOFTWARE\Microsoft\Office\14.0\Outlook $cert $null
+    ConfigureOutlookSignatures "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Windows Messaging Subsystem\Profiles\$DefaultProfile\c02ebc5353d9cd11975200aa004ae40e" HKLM:\SOFTWARE\Microsoft\Office\14.0\Outlook $cert $encryptionCert
 }
 ### 32 Bit Outlook on 64 Bit Windows
 if (Test-Path HKLM:\SOFTWARE\WOW6432Node\Microsoft\Office\14.0\Outlook) {
     $DefaultProfile = (Get-ItemProperty "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Windows Messaging Subsystem\Profiles").DefaultProfile
 
-    ConfigureOutlookSignatures "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Windows Messaging Subsystem\Profiles\$DefaultProfile\c02ebc5353d9cd11975200aa004ae40e" HKLM:\SOFTWARE\WOW6432Node\Microsoft\Office\14.0\Outlook $cert $null
+    ConfigureOutlookSignatures "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Windows Messaging Subsystem\Profiles\$DefaultProfile\c02ebc5353d9cd11975200aa004ae40e" HKLM:\SOFTWARE\WOW6432Node\Microsoft\Office\14.0\Outlook $cert $encryptionCert
 }
