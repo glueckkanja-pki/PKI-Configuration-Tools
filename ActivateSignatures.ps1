@@ -35,6 +35,7 @@ Changelog:
 20180104b: Parses existing configuration and overwrites settings if the configured certificate is not valid anymore - C. Hannebauer
 20210211: Switch for Encryption Certificate
 20220407: Update to allowed algorithms
+20220502: Style improvements
 
 #>
 param
@@ -143,22 +144,22 @@ Class OutlookSignatureSettings {
     }
 
     [System.Security.Cryptography.X509Certificates.X509Certificate2] FindSigningCertificate() {
-        if ($this.SigningCertificateHash -eq $null) { return $null; }
+        if ($null -eq $this.SigningCertificateHash) { return $null; }
         
-        return dir cert:\CurrentUser\My | ? { @(Compare-Object $_.GetCertHash() $this.SigningCertificateHash -sync 0).Length -eq 0}
+        return Get-ChildItem cert:\CurrentUser\My | Where-Object { @(Compare-Object $_.GetCertHash() $this.SigningCertificateHash -sync 0).Length -eq 0}
     }
 
     [System.Security.Cryptography.X509Certificates.X509Certificate2] FindEncryptionCertificate() {
-    if ($this.EncryptionCertificateHash -eq $null) { return $null; }
+    if ($null -eq $this.EncryptionCertificateHash) { return $null; }
         
-        return dir cert:\CurrentUser\My | ? { @(Compare-Object $_.GetCertHash() $this.EncryptionCertificateHash -sync 0).Length -eq 0}
+        return Get-ChildItem cert:\CurrentUser\My | Where-Object { @(Compare-Object $_.GetCertHash() $this.EncryptionCertificateHash -sync 0).Length -eq 0}
     }
 
     [bool] ValidateSettings() { # Checks whether configured certificates exist and are still valid. If not, return false.
 
-        if ($this.SigningCertificateHash -ne $null) {
-            $configuredSigningCertificate = dir cert:\CurrentUser\My | ? { @(Compare-Object $_.GetCertHash() $this.SigningCertificateHash -sync 0).Length -eq 0}
-            if ($configuredSigningCertificate -eq $null) {
+        if ($null -ne $this.SigningCertificateHash) {
+            $configuredSigningCertificate = Get-ChildItem cert:\CurrentUser\My | Where-Object { @(Compare-Object $_.GetCertHash() $this.SigningCertificateHash -sync 0).Length -eq 0}
+            if ($null -eq $configuredSigningCertificate) {
                 Write-Information "Signing Certificate is configured, but does not exist"
                 return $false;
             }
@@ -168,9 +169,9 @@ Class OutlookSignatureSettings {
             }
         }
 
-        if ($this.EncryptionCertificateHash -ne $null) {
-            $configuredEncryptionCertificate = dir cert:\CurrentUser\My | ? { @(Compare-Object $_.GetCertHash() $this.EncryptionCertificateHash -sync 0).Length -eq 0}
-            if ($configuredEncryptionCertificate -eq $null) {
+        if ($null -ne $this.EncryptionCertificateHash) {
+            $configuredEncryptionCertificate = Get-ChildItem cert:\CurrentUser\My | Where-Object { @(Compare-Object $_.GetCertHash() $this.EncryptionCertificateHash -sync 0).Length -eq 0}
+            if ($null -eq $configuredEncryptionCertificate) {
                 Write-Information "Encryption Certificate is configured, but does not exist"
                 return $false;
             }
@@ -270,11 +271,11 @@ function ConfigureOutlookSignatures($OutlookSettingsPath, $OutlookHKLMPath, $Sig
             if (-not (Test-Path "$OutlookSettingsPath-backups")) {
                 New-Item -Path "$OutlookSettingsPath-backups" -ItemType RegistryKey -Force
             }
-            copy $OutlookSettingsPath $backupPath -Force -ErrorAction Stop
+            Copy-Item $OutlookSettingsPath $backupPath -Force -ErrorAction Stop
         }
     }
     else { # The whole registry key might not exist if Outlook has never touched security settings
-        $dummy = New-Item -Path $OutlookSettingsPath -ItemType RegistryKey -Force
+        $null = New-Item -Path $OutlookSettingsPath -ItemType RegistryKey -Force
     }
 
     Write-Information "Configuring Outlook in Path $OutlookSettingsPath" 
@@ -282,7 +283,7 @@ function ConfigureOutlookSignatures($OutlookSettingsPath, $OutlookHKLMPath, $Sig
     try {
         $outlookCertificateConfiguration = new-object OutlookSignatureSettings($OfficeBitness, $SigningCertificate, $EncryptionCertificate)
         [byte[]] $binSettings = $outlookCertificateConfiguration.CreateRegistryValue()
-        $dummy = New-ItemProperty $OutlookSettingsPath -Name 11020355 -PropertyType Binary -Value $binSettings -Force:(-not [String]::IsNullOrEmpty($backupPath))
+        $null = New-ItemProperty $OutlookSettingsPath -Name 11020355 -PropertyType Binary -Value $binSettings -Force:(-not [String]::IsNullOrEmpty($backupPath))
 
         [byte]$CryptoEnablerBits = 0
         if ($null -ne $EncryptionCertificate) {
@@ -308,15 +309,15 @@ function ConfigureOutlookSignatures($OutlookSettingsPath, $OutlookHKLMPath, $Sig
 
         ## Enable Signatures and/or Encryption as default
         [byte[]]$binCryptoActivation = $CryptoEnablerBits,0,0,0
-        $dummy = New-ItemProperty $OutlookSettingsPath -Name 00030354 -PropertyType Binary -Value $binCryptoActivation -Force
+        $null = New-ItemProperty $OutlookSettingsPath -Name 00030354 -PropertyType Binary -Value $binCryptoActivation -Force
     }
     catch {
         if ($backupPath -ne [String]::Empty -and (Test-Path $backupPath)) {
             Write-Warning "An error occurred, restoring backup"
             Write-Information "deleting potentially misconfigured registry value"
-            del $OutlookSettingsPath
+            Remove-Item $OutlookSettingsPath
             Write-Information "copying backuped value to the original registry location"
-            copy $backupPath $OutlookSettingsPath
+            Copy-Item $backupPath $OutlookSettingsPath
         }
         throw
     }
@@ -327,13 +328,13 @@ Write-Information "ActivateSignatures Version 20220407"
 
 ## Search for an appropriate certificate
 $sOidSecureEmail = "1.3.6.1.5.5.7.3.4"
-$CandidateCerts = @(dir cert:\CurrentUser\My | ? { $_.Issuer -eq $CAName -and $_.HasPrivateKey -and ( ( ($_.EnhancedKeyUsageList | ? { $_.ObjectId -eq $sOidSecureEmail }) -ne $null) -OR ($_.Extensions| ? {$_.EnhancedKeyUsages | ? {$_.Value -eq $sOidSecureEmail} } ) ) })
+$CandidateCerts = @(Get-ChildItem cert:\CurrentUser\My | Where-Object { $_.Issuer -eq $CAName -and $_.HasPrivateKey -and ( ( ($_.EnhancedKeyUsageList | Where-Object { $_.ObjectId -eq $sOidSecureEmail }) -ne $null) -OR ($_.Extensions| Where-Object {$_.EnhancedKeyUsages | Where-Object {$_.Value -eq $sOidSecureEmail} } ) ) })
 Write-Information "There are $($CandidateCerts.Length) certificates for S/MIME"
-$ValidCandidateCerts = @($CandidateCerts | ? { $_.Verify() })
+$ValidCandidateCerts = @($CandidateCerts | Where-Object { $_.Verify() })
 Write-Information "Of these S/MIME certificates, $($ValidCandidateCerts.Length) are valid"
 
 # If multiple suitable certificates are found, use the one that expires last
-$cert = $ValidCandidateCerts | Sort NotAfter -Descending | Select -First 1
+$cert = $ValidCandidateCerts | Sort-Object NotAfter -Descending | Select-Object -First 1
 
 if ($null -eq $cert) {
     Write-Error "No certificate found to be used as signature certificate." 
