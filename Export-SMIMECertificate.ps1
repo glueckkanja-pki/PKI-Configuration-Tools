@@ -20,8 +20,9 @@ param
 [Parameter(Position=0,Mandatory=$true,ValueFromPipeline=$false,HelpMessage='the file path to export the certificates to')][string]$Path,
 [Parameter(Position=1,Mandatory=$true,ValueFromPipeline=$false,HelpMessage='the password with which the exported PFX files will be protected')][string]$Password,
 [Parameter(Position=0,Mandatory=$false,ValueFromPipeline=$false,HelpMessage='exact name of Issuing CA')][string]$CAName
-
 )
+
+$ErrorActionPreference = "Stop"
 
 ## Search for S/MIME certificates
 $sOidSecureEmail = "1.3.6.1.5.5.7.3.4"
@@ -32,7 +33,7 @@ $sOidKeyUsageExtension = "2.5.29.15"
 $encryptionCertificates = $CandidateCerts | Where-Object { ($null -eq ($_.Extensions | Where-Object { $_.Oid -eq $sOidKeyUsageExtension })) -OR ($null -ne ($_.Extensions | Where-Object { $_.Oid -eq $sOidKeyUsageExtension -AND $_.KeyUsages.HasFlag([System.Security.Cryptography.X509Certificates.X509KeyUsageFlags]::KeyEncipherment)})) }
 Write-Information "Of these, $($encryptionCertificates.Length) are encryption certificates"
 
-if ($null -ne $CAName) {
+if (-not [string]::IsNullOrEmpty($CAName)) {
     $encryptionCertificates = $encryptionCertificates | Where-Object { $_.Issuer -eq $CAName }
     Write-Information "Of these, $($encryptionCertificates.Length) were issued by $CAName"
 }
