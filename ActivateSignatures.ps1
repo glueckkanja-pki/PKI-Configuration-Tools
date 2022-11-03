@@ -1,5 +1,5 @@
 <# 
-ActivateSignatures.ps1 Version: 20220407
+ActivateSignatures.ps1 Version: 20221103
 C. Hannebauer - glueckkanja-gab
 T. Kunzi - glueckkanja-gab
 F. Schlenz
@@ -36,6 +36,7 @@ Changelog:
 20210211: Switch for Encryption Certificate
 20220407: Update to allowed algorithms
 20220502: Style improvements
+20221103: Fixed wrong error message in seldom cases
 
 #>
 param
@@ -101,7 +102,7 @@ Class OutlookSignatureSettings {
         $totalLength = $lengthOfBody + $lengthOfHeader;
         $totalLength += (16 - $totalLength % 16)
         if ($totalLength -ne $binExistingSettings.Length) {
-            throw "Encoding says the header has a length of $lengthOfHeader bytes, while the body's length should be $lengthOfBody. Together with padding, this should be $totalLength bytes. However, the real length is different, specifically $binExistingSettings.Length bytes.";
+            throw "Encoding says the header has a length of $lengthOfHeader bytes, while the body's length should be $lengthOfBody. Together with padding, this should be $totalLength bytes. However, the real length is different, specifically $($binExistingSettings.Length) bytes.";
         }
 
         $currentPosition = $lengthOfHeader
