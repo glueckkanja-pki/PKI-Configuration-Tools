@@ -1,5 +1,7 @@
+using namespace System.Collections.Generic
+
 <# 
-ActivateSignatures.ps1 Version: 20220407
+ActivateSignatures.ps1 Version: 20221103
 C. Hannebauer - glueckkanja-gab
 T. Kunzi - glueckkanja-gab
 F. Schlenz
@@ -36,6 +38,7 @@ Changelog:
 20210211: Switch for Encryption Certificate
 20220407: Update to allowed algorithms
 20220502: Style improvements
+20221103: Fixed wrong error message in seldom cases
 
 #>
 param
@@ -47,14 +50,14 @@ param
 [Parameter(Position=4,Mandatory=$false,ValueFromPipeline=$false,HelpMessage='instruct Outlook to encrypt emails as default setting')][switch]$AlwaysEncryptMails
 )
 
-Class OutlookSignatureSettings {
+Class OutlookSecuritySetting {
 
     [string] $SettingsName;
     [string] $OfficeBitness; # Can only be x86 or x64
     [byte[]] $SigningCertificateHash;
     [byte[]] $EncryptionCertificateHash;
 
-    OutlookSignatureSettings([string] $OfficeBitness, [System.Security.Cryptography.X509Certificates.X509Certificate2] $SigningCertificate, [System.Security.Cryptography.X509Certificates.X509Certificate2] $EncryptionCertificate) {
+    OutlookSecuritySetting([string] $OfficeBitness, [System.Security.Cryptography.X509Certificates.X509Certificate2] $SigningCertificate, [System.Security.Cryptography.X509Certificates.X509Certificate2] $EncryptionCertificate) {
         
         $this.SettingsName = "Outlook Signature Settings";
         $this.OfficeBitness = $OfficeBitness;
@@ -66,45 +69,10 @@ Class OutlookSignatureSettings {
         }
     }
 
-    OutlookSignatureSettings([string] $OfficeBitness, [byte[]] $binExistingSettings) {
+    OutlookSecuritySetting([string] $OfficeBitness, [byte[]] $binExistingSettings) {
         $this.OfficeBitness = $OfficeBitness
 
-        if ($binExistingSettings.Length -le 20) {
-            throw "Existing settings are only $($binExistingSettings.Length) bytes long, too short for real settings.";
-        }
-        if (($binExistingSettings.Length % 16) -ne 0) {
-            throw "Existing settings are $($binExistingSettings.Length) bytes long, which is not dividable by 16. Real settings are always padded to multiples of 16.";
-        }
-
-        if (1 -ne ([System.BitConverter]::ToUInt32($binExistingSettings,0))) {
-            throw "Existing settings do not start with 01 00 00 00 as expected";
-        }
-        
-        if ($this.OfficeBitness -eq "x86") {
-            $lengthOfBody = [System.BitConverter]::ToUInt32($binExistingSettings,4)
-            $lengthOfHeader = [System.BitConverter]::ToUInt32($binExistingSettings,8)
-            if ($lengthOfHeader -ne 12) {
-                throw "Header length encoded to $lengthOfHeader instead of the expected 12";
-            }
-        }
-        ElseIf ($this.OfficeBitness -eq "x64") {
-            $lengthOfBody = [System.BitConverter]::ToUInt64($binExistingSettings,4)
-            $lengthOfHeader = [System.BitConverter]::ToUInt64($binExistingSettings,12)
-            if ($lengthOfHeader -ne 20) {
-                throw "Header length encoded to $lengthOfHeader instead of the expected 20";
-            }
-        }
-        Else {
-            throw [System.ArgumentException] "Unknown Office Bitness: $this.OfficeBitness"
-        }
-
-        $totalLength = $lengthOfBody + $lengthOfHeader;
-        $totalLength += (16 - $totalLength % 16)
-        if ($totalLength -ne $binExistingSettings.Length) {
-            throw "Encoding says the header has a length of $lengthOfHeader bytes, while the body's length should be $lengthOfBody. Together with padding, this should be $totalLength bytes. However, the real length is different, specifically $binExistingSettings.Length bytes.";
-        }
-
-        $currentPosition = $lengthOfHeader
+         $currentPosition = 0
 
         do {
             $packetTag = [BitConverter]::ToUInt16($binExistingSettings, $currentPosition);
@@ -123,7 +91,7 @@ Class OutlookSignatureSettings {
                     # some value of the preliminaries of unknown purpose
                 }
                 0x20 {
-                    # some value of the preliminaries of unknown purpose
+                    # some value of the preliminaries of unknown purpose; probably the "Default Security Setting..." options and "Send these certificates with signed messages"
                 }
                 0x02 {                    # Hash algorithm, doesn't need to be parsed
                 }
@@ -184,7 +152,7 @@ Class OutlookSignatureSettings {
         return $true
     }
 
-    [byte[]] CreateRegistryValue() {
+    [byte[]] CreateBinaryConfiguration() {
 
         ## Create detailed Settings
         
@@ -214,15 +182,83 @@ Class OutlookSignatureSettings {
         [byte[]] $binAlgorithms = 0x02, 0x00, 0x60, 0x00, 0x30, 0x5a, 0x30, 0x0b, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x01, 0x2a, 0x30, 0x0b, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x01, 0x16, 0x30, 0x0a, 0x06, 0x08, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x03, 0x07, 0x30, 0x0b, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x01, 0x02, 0x30, 0x0b, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x30, 0x0b, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03, 0x30, 0x0b, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02
 
         ### Total
+        return $binPreliminaries + $binSettingsName + $BinThumbprintSettings + $binAlgorithms
+    }
+}
 
-        [byte[]] $binSettingsBody = $binPreliminaries + $binSettingsName + $BinThumbprintSettings + $binAlgorithms
+Class OutlookSecuritySettingsList {
+
+    [string] $OfficeBitness; # Can only be x86 or x64
+    [List[OutlookSecuritySetting]] $ListOfSettings;
+
+    OutlookSecuritySettingsList([string] $OfficeBitness, [System.Security.Cryptography.X509Certificates.X509Certificate2] $SigningCertificate, [System.Security.Cryptography.X509Certificates.X509Certificate2] $EncryptionCertificate) {
+        $this.OfficeBitness = $OfficeBitness
+        
+        $singleSecuritySetting = New-Object OutlookSecuritySetting -OfficeBitness $OfficeBitness -SigningCertificate $SigningCertificate -EncryptionCertificate $EncryptionCertificate
+        
+        $this.ListOfSettings = New-Object List[OutlookSecuritySetting]
+        $this.ListOfSettings.Add($singleSecuritySetting)
+    }
+
+    OutlookSecuritySettingsList([string] $OfficeBitness, [byte[]] $binExistingSettings) {
+        $this.OfficeBitness = $OfficeBitness
+
+        if ($binExistingSettings.Length -le 20) {
+            throw "Existing settings are only $($binExistingSettings.Length) bytes long, too short for real settings.";
+        }
+        if (($binExistingSettings.Length % 16) -ne 0) {
+            throw "Existing settings are $($binExistingSettings.Length) bytes long, which is not dividable by 16. Real settings are always padded to multiples of 16.";
+        }
+
+        $numberOfEntries = [System.BitConverter]::ToUInt32($binExistingSettings,0)
+        $this.ListOfSettings = New-Object List[OutlookSecuritySetting]
+
+        for ($currentEntryNumber = 0; $currentEntryNumber -lt $numberOfEntries; ++$currentEntryNumber) {
+            if ($this.OfficeBitness -eq "x86") {
+                $lengthOfBody = [System.BitConverter]::ToUInt32($binExistingSettings,$currentEntryNumber * 8 + 4)
+                $offsetOfBody = [System.BitConverter]::ToUInt32($binExistingSettings,$currentEntryNumber * 8 + 8)
+            }
+            ElseIf ($this.OfficeBitness -eq "x64") {
+                $lengthOfBody = [System.BitConverter]::ToUInt64($binExistingSettings,$currentEntryNumber * 8 + 4)
+                $offsetOfBody = [System.BitConverter]::ToUInt64($binExistingSettings,$currentEntryNumber * 8 + 12)
+            }
+            Else {
+                throw [System.ArgumentException] "Unknown Office Bitness: $this.OfficeBitness"
+            }
+
+            $binCurrentEntry = $binExistingSettings[$offsetOfBody..($offsetOfBody+$lengthOfBody)]
+            $currentSecuritySetting = New-Object OutlookSecuritySetting -OfficeBitness $OfficeBitness -binExistingSettings $binCurrentEntry
+            $this.ListOfSettings.Add($currentSecuritySetting)
+        }
+    }
+
+    
+    [bool] ValidateSettings() { # Checks whether configured certificates exist and are still valid. If not, return false.
+
+        if ($this.ListOfSettings.Count -ne 1) {
+            throw "There are $($this.ListOfSettings.Count) settings configured, but this script currently supports only if there is exactly one Security Setting"
+        }
+
+        return $this.ListOfSettings[0].ValidateSettings()
+    }
+
+    [byte[]] CreateRegistryValue() {
+
+        if ($this.ListOfSettings.Count -ne 1) {
+            throw "There are $($this.ListOfSettings.Count) settings configured, but this script currently supports only if there is exactly one Security Setting"
+        }
+
+        [byte[]] $binSettingsBody = $this.ListOfSettings[0].CreateBinaryConfiguration()
+
         if ($this.OfficeBitness -eq "x86") {
-	        [byte[]] $binSettingsHeader = (1,0,0,0) + [System.BitConverter]::GetBytes($binSettingsBody.Length) + `
-		        [System.BitConverter]::GetBytes(12) # Length of the Header in Bytes
+	        [byte[]] $binSettingsHeader = (1,0,0,0) + ` # number of entries
+                [System.BitConverter]::GetBytes($binSettingsBody.Length) + ` # length of first entry
+		        [System.BitConverter]::GetBytes(12) # offset of first entry
         }
         ElseIf ($this.OfficeBitness -eq "x64") {
-	        [byte[]] $binSettingsHeader = (1,0,0,0) + [System.BitConverter]::GetBytes($binSettingsBody.LongLength) + `
-		        [System.BitConverter]::GetBytes([long]20) # Length of the Header in Bytes
+	        [byte[]] $binSettingsHeader = (1,0,0,0) + ` # number of entries
+                [System.BitConverter]::GetBytes($binSettingsBody.LongLength) + ` # length of first entry
+		        [System.BitConverter]::GetBytes([long]20) # offset of first entry
         }
         Else {
             throw [System.ArgumentException] "Unknown Office Bitness: $this.OfficeBitness"
@@ -253,7 +289,7 @@ function ConfigureOutlookSignatures($OutlookSettingsPath, $OutlookHKLMPath, $Sig
             }
             else {
                 $binExistingSettings = Get-ItemPropertyValue -Path $OutlookSettingsPath -Name 11020355
-                $objExistingSettings = New-Object OutlookSignatureSettings($OfficeBitness, $binExistingSettings)
+                $objExistingSettings = New-Object OutlookSecuritySettingsList($OfficeBitness, $binExistingSettings)
 
                 if ($objExistingSettings.ValidateSettings()) {
                     Write-Error "Valid Security Settings already exist. Use Force parameter if you still want to write new settings." 
@@ -281,7 +317,7 @@ function ConfigureOutlookSignatures($OutlookSettingsPath, $OutlookHKLMPath, $Sig
     Write-Information "Configuring Outlook in Path $OutlookSettingsPath" 
 
     try {
-        $outlookCertificateConfiguration = new-object OutlookSignatureSettings($OfficeBitness, $SigningCertificate, $EncryptionCertificate)
+        $outlookCertificateConfiguration = new-object OutlookSecuritySettingsList($OfficeBitness, $SigningCertificate, $EncryptionCertificate)
         [byte[]] $binSettings = $outlookCertificateConfiguration.CreateRegistryValue()
         $null = New-ItemProperty $OutlookSettingsPath -Name 11020355 -PropertyType Binary -Value $binSettings -Force:(-not [String]::IsNullOrEmpty($backupPath))
 
